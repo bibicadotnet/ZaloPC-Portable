@@ -75,22 +75,40 @@ jobs:
           $base = Join-Path $env:LOCALAPPDATA "Programs\Zalo"
           if (-not (Test-Path $base)) { throw "Khong tim thay $base" }
 
-          $dir = Get-ChildItem $base -Directory |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
+          # Uu tien thu muc phien ban "Zalo-x.y.z" - day moi la du lieu app that su can dong goi
+          # (Programs\Zalo\ goc chi chua launcher/stub va cac file dung chung)
+          $verDir = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^Zalo-\d' -and (Test-Path (Join-Path $_.FullName "Zalo.exe")) } |
+            Sort-Object { [version]($_.Name -replace '^Zalo-', '') } |
+            Select-Object -Last 1
 
-          if (-not $dir) { throw "Khong tim thay thu muc cai dat Zalo ben trong $base" }
+          if ($verDir) {
+            $dir = $verDir
+          }
+          else {
+            # Du phong: mot so kieu cai dat (vd winget --silent) khong tao thu muc phien ban rieng,
+            # Zalo.exe nam thang trong thu muc goc -> dung luon thu muc goc
+            $rootExe = Join-Path $base "Zalo.exe"
+            if (Test-Path $rootExe) {
+              $dir = Get-Item $base
+            }
+            else {
+              $exe = Get-ChildItem $base -Recurse -Filter "Zalo.exe" -File -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if (-not $exe) { throw "Khong tim thay Zalo.exe ben trong $base" }
+              $dir = $exe.Directory
+            }
+          }
 
-          Write-Host "Tim thay: $($dir.FullName)"
+          Write-Host "Thu muc se dong goi: $($dir.FullName)"
           echo "path=$($dir.FullName)" >> $env:GITHUB_OUTPUT
-          echo "name=$($dir.Name)" >> $env:GITHUB_OUTPUT
 
       - name: Nén thư mục cài đặt
         id: zip
         if: steps.check.outputs.exists == 'false'
         shell: pwsh
         run: |
-          $zipName = "${{ steps.locate.outputs.name }}.zip"
+          $zipName = "${{ steps.check.outputs.tag }}.zip"
           Compress-Archive -Path "${{ steps.locate.outputs.path }}\*" -DestinationPath $zipName -Force
           Write-Host "Da nen: $zipName"
           echo "zipname=$zipName" >> $env:GITHUB_OUTPUT
@@ -101,7 +119,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ steps.locate.outputs.name }}"
+          $tag = "${{ steps.check.outputs.tag }}"
           gh release create $tag "${{ steps.zip.outputs.zipname }}" `
             --repo $env:GITHUB_REPOSITORY `
             --title $tag `
