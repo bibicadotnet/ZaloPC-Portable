@@ -1,0 +1,72 @@
+name: Build Zalo Portable
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 17 * * *' # timezone: 00:00 VN time (UTC+7)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get latest Zalo version and download
+        id: get_zalo
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/v/VNGCorp/Zalo"
+          # Lấy danh sách các thư mục phiên bản và sort theo SemVer
+          $versions = Invoke-RestMethod -Uri $apiUrl | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
+          $latestVersion = $versions | Sort-Object { [version]$_ } -Descending | Select-Object -First 1
+          
+          echo "Latest Zalo version: $latestVersion"
+          echo "VERSION=$latestVersion" >> $env:GITHUB_OUTPUT
+
+          # Lấy link tải từ file YAML của bản mới nhất
+          $installerYamlUrl = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/v/VNGCorp/Zalo/$latestVersion/VNGCorp.Zalo.installer.yaml"
+          $yamlContent = Invoke-WebRequest -Uri $installerYamlUrl -UseBasicParsing
+          
+          if ($yamlContent.Content -match 'InstallerUrl:\s*(.+)') {
+              $installerUrl = $matches[1].Trim()
+              echo "Downloading Zalo from: $installerUrl"
+              Invoke-WebRequest -Uri $installerUrl -OutFile "ZaloSetup.exe"
+          } else {
+              Write-Error "Khong tim thay InstallerUrl trong file YAML."
+              exit 1
+          }
+
+      - name: Install Zalo (Silent)
+        shell: pwsh
+        run: |
+          # Cài đặt Zalo ngầm
+          Start-Process -FilePath ".\ZaloSetup.exe" -ArgumentList "/S" -Wait -NoNewWindow
+          # Đợi thêm 10 giây để đảm bảo file được ghi hoàn tất xuống ổ cứng
+          Start-Sleep -Seconds 10
+
+      - name: Compress Portable Folder
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_zalo.outputs.VERSION }}"
+          $zaloPath = "$env:LOCALAPPDATA\Programs\Zalo\Zalo-$version"
+          $zipName = "Zalo-$version.zip"
+          
+          if (Test-Path $zaloPath) {
+              echo "Dang nen thu muc $zaloPath thanh $zipName"
+              Compress-Archive -Path "$zaloPath\*" -DestinationPath $zipName -Force
+          } else {
+              Write-Error "Khong tim thay thu muc Zalo tai $zaloPath"
+              exit 1
+          }
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: Zalo-${{ steps.get_zalo.outputs.VERSION }}
+          name: Zalo-${{ steps.get_zalo.outputs.VERSION }}
+          files: Zalo-${{ steps.get_zalo.outputs.VERSION }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
