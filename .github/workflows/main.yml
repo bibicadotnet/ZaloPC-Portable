@@ -1,72 +1,103 @@
-name: Build Zalo Portable
+name: Cập nhật Zalo Release
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 17 * * *' # timezone: 00:00 VN time (UTC+7)
+    # Kiểm tra bản mới mỗi 6 tiếng — chỉnh lại nếu muốn
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get latest Zalo version and download
-        id: get_zalo
+      - name: Lấy phiên bản mới nhất từ winget-pkgs
+        id: winget
         shell: pwsh
-        run: |
-          $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/v/VNGCorp/Zalo"
-          # Lấy danh sách các thư mục phiên bản và sort theo SemVer
-          $versions = Invoke-RestMethod -Uri $apiUrl | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
-          $latestVersion = $versions | Sort-Object { [version]$_ } -Descending | Select-Object -First 1
-          
-          echo "Latest Zalo version: $latestVersion"
-          echo "VERSION=$latestVersion" >> $env:GITHUB_OUTPUT
-
-          # Lấy link tải từ file YAML của bản mới nhất
-          $installerYamlUrl = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/v/VNGCorp/Zalo/$latestVersion/VNGCorp.Zalo.installer.yaml"
-          $yamlContent = Invoke-WebRequest -Uri $installerYamlUrl -UseBasicParsing
-          
-          if ($yamlContent.Content -match 'InstallerUrl:\s*(.+)') {
-              $installerUrl = $matches[1].Trim()
-              echo "Downloading Zalo from: $installerUrl"
-              Invoke-WebRequest -Uri $installerUrl -OutFile "ZaloSetup.exe"
-          } else {
-              Write-Error "Khong tim thay InstallerUrl trong file YAML."
-              exit 1
-          }
-
-      - name: Install Zalo (Silent)
-        shell: pwsh
-        run: |
-          # Cài đặt Zalo ngầm
-          Start-Process -FilePath ".\ZaloSetup.exe" -ArgumentList "/S" -Wait -NoNewWindow
-          # Đợi thêm 10 giây để đảm bảo file được ghi hoàn tất xuống ổ cứng
-          Start-Sleep -Seconds 10
-
-      - name: Compress Portable Folder
-        shell: pwsh
-        run: |
-          $version = "${{ steps.get_zalo.outputs.VERSION }}"
-          $zaloPath = "$env:LOCALAPPDATA\Programs\Zalo\Zalo-$version"
-          $zipName = "Zalo-$version.zip"
-          
-          if (Test-Path $zaloPath) {
-              echo "Dang nen thu muc $zaloPath thanh $zipName"
-              Compress-Archive -Path "$zaloPath\*" -DestinationPath $zipName -Force
-          } else {
-              Write-Error "Khong tim thay thu muc Zalo tai $zaloPath"
-              exit 1
-          }
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: Zalo-${{ steps.get_zalo.outputs.VERSION }}
-          name: Zalo-${{ steps.get_zalo.outputs.VERSION }}
-          files: Zalo-${{ steps.get_zalo.outputs.VERSION }}.zip
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headers = @{ "User-Agent" = "ZaloPC-Portable-Action" }
+          if ($env:GH_TOKEN) { $headers["Authorization"] = "Bearer $env:GH_TOKEN" }
+
+          $resp = Invoke-RestMethod -Headers $headers `
+            -Uri "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/v/VNGCorp/Zalo"
+
+          $versions = $resp | Where-Object { $_.type -eq "dir" } | ForEach-Object { $_.name }
+          $latest = $versions | Sort-Object { [version]$_ } | Select-Object -Last 1
+
+          if (-not $latest) { throw "Không lấy được danh sách phiên bản từ winget-pkgs" }
+
+          Write-Host "Phiên bản mới nhất trên winget-pkgs: $latest"
+          echo "version=$latest" >> $env:GITHUB_OUTPUT
+
+      - name: Kiểm tra release đã tồn tại chưa
+        id: check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "Zalo-${{ steps.winget.outputs.version }}"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          $exists = ($LASTEXITCODE -eq 0)
+          Write-Host "Tag $tag ton tai: $exists"
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          echo "exists=$exists" >> $env:GITHUB_OUTPUT
+
+      - name: Cài đặt Zalo qua winget
+        if: steps.check.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          winget source update
+          winget install --id VNGCorp.Zalo -e `
+            --silent `
+            --accept-package-agreements `
+            --accept-source-agreements `
+            --disable-interactivity
+
+      - name: Tìm thư mục vừa cài đặt
+        id: locate
+        if: steps.check.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $base = Join-Path $env:LOCALAPPDATA "Programs\Zalo"
+          if (-not (Test-Path $base)) { throw "Khong tim thay $base" }
+
+          $dir = Get-ChildItem $base -Directory |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          if (-not $dir) { throw "Khong tim thay thu muc cai dat Zalo ben trong $base" }
+
+          Write-Host "Tim thay: $($dir.FullName)"
+          echo "path=$($dir.FullName)" >> $env:GITHUB_OUTPUT
+          echo "name=$($dir.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Nén thư mục cài đặt
+        id: zip
+        if: steps.check.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $zipName = "${{ steps.locate.outputs.name }}.zip"
+          Compress-Archive -Path "${{ steps.locate.outputs.path }}\*" -DestinationPath $zipName -Force
+          Write-Host "Da nen: $zipName"
+          echo "zipname=$zipName" >> $env:GITHUB_OUTPUT
+
+      - name: Tạo GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.locate.outputs.name }}"
+          gh release create $tag "${{ steps.zip.outputs.zipname }}" `
+            --repo $env:GITHUB_REPOSITORY `
+            --title $tag `
+            --notes "Tu dong dong goi tu winget-pkgs (VNGCorp.Zalo ${{ steps.winget.outputs.version }})."
