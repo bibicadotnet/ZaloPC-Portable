@@ -51,6 +51,11 @@ jobs:
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
           echo "exists=$exists" >> $env:GITHUB_OUTPUT
 
+          # gh tra ve exit code 1 khi release chua ton tai (dung y muon).
+          # Reset lai de GitHub Actions khong tu dong danh dau buoc nay la loi.
+          $global:LASTEXITCODE = 0
+          exit 0
+
       - name: Cài đặt Zalo qua winget
         if: steps.check.outputs.exists == 'false'
         shell: pwsh
