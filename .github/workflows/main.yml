@@ -2,7 +2,6 @@ name: Cập nhật Zalo Release
 
 on:
   schedule:
-    # Kiểm tra bản mới mỗi 6 tiếng — chỉnh lại nếu muốn
     - cron: "0 */6 * * *"
   workflow_dispatch: {}
 
