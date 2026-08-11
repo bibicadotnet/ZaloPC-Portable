@@ -55,5 +55,5 @@ GitHub Actions kiểm tra phiên bản mới mỗi **6 giờ**, vì vậy bản 
 
 * Windows 10/11 64-bit
 * Ổ đĩa định dạng **NTFS**
-* Lần đầu chạy có thể cần quyền **Administrator** để tạo symbolic link
+* Cần quyền **Administrator** để tạo symbolic link
 * Bộ gõ tiếng Việt (UniKey...) cần chạy với quyền **Administrator**
