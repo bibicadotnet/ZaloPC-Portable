@@ -11,6 +11,7 @@ Phiên bản viết lại dựa theo bản của thành viên [chín hai](https:
 1. Tải [ZaloPC.Portable.zip](https://github.com/bibicadotnet/ZaloPC-Portable/releases/download/setup/ZaloPC.Portable.zip)
 2. Giải nén file vừa tải vào ổ D hoặc ổ E (tránh để ở ổ C vì khi cài lại Windows sẽ bị xóa)
 3. Ở lần chạy đầu tiên, chạy file `update.bat` để tải bản Zalo PC mới nhất về
+![2MCb8d1Y](https://img.bibica.net/2MCb8d1Y.png)
 4. Chạy file `Zalo.exe` để đăng nhập và dùng bình thường
 
 > Bắt buộc sử dụng ổ đĩa định dạng NTFS. FAT32 và exFAT không hỗ trợ liên kết thư mục (Junction Point).
