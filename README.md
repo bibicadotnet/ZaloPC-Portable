@@ -1,3 +1,5 @@
+![sgODaA5K](https://img.bibica.net/sgODaA5K.png)
+
 # ZaloPC Portable
 
 Phiên bản viết lại dựa theo bản của thành viên [chín hai](https://voz.vn/u/chin-hai.1704367/) trên [VOZ](https://voz.vn/t/zalopc-portable.1064415/).
