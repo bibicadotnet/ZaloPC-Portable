@@ -9,13 +9,15 @@ Phiên bản viết lại dựa theo bản của thành viên [chín hai](https:
 ## Tải và sử dụng
 
 1. Tải [ZaloPC.Portable.zip](https://github.com/bibicadotnet/ZaloPC-Portable/releases/download/setup/ZaloPC.Portable.zip)
-2. Giải nén vào thư mục muốn sử dụng
-3. Chạy `update.bat` để tải phiên bản Zalo mới nhất
-4. Chạy `Zalo.exe` và đăng nhập
+2. Giải nén file vừa tải vào ổ D hoặc ổ E (tránh để ở ổ C vì khi cài lại Windows sẽ bị xóa)
+3. Ở lần chạy đầu tiên, chạy file `update.bat` để tải bản Zalo PC mới nhất về
+4. Chạy file `Zalo.exe` để đăng nhập và dùng bình thường
 
 > Bắt buộc sử dụng ổ đĩa định dạng NTFS. FAT32 và exFAT không hỗ trợ liên kết thư mục (Junction Point).
 
 Muốn Zalo tự khởi động cùng Windows, chạy `add_to_startup.bat`.
+
+* Khi chuyển sang thiết bị khác (hoặc cài mới Windows), cần đăng nhập (quét mã QR) lại theo chính sách bảo mật của Zalo
 
 ## Cập nhật
 
@@ -50,7 +52,6 @@ ZaloPC trong repo được đóng gói tự động từ package **`VNGCorp.Zalo
 
 GitHub Actions kiểm tra phiên bản mới mỗi **6 giờ**, vì vậy bản trên repo có thể chậm hơn bản chính thức tối đa khoảng 6 giờ.
 
-## Yêu cầu
+## Cảnh báo và từ chối trách nhiệm
 
-* Windows 10/11 64-bit
-* Ổ đĩa định dạng **NTFS**
+Dù source code đều công khai, nhưng nếu bạn vẫn thấy lấn cấn, không an tâm, hãy [fork](https://github.com/bibicadotnet/ZaloPC-Portable/fork) dự án về tài khoản của bạn, chạy workflows, sửa lại đường dẫn trong `update.bat` tới dự án của bạn, rồi dùng cá nhân, tất cả mọi thứ đều do bạn tự quản trị
