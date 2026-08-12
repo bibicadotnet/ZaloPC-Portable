@@ -60,33 +60,53 @@ jobs:
     strategy:
       matrix:
         version: ${{ fromJson(needs.prepare.outputs.missing_versions) }}
-      max-parallel: 2 # Số lượng job chạy song song tối đa (tùy chỉnh nếu muốn)
-      fail-fast: false # Nếu 1 bản bị lỗi thì các bản khác vẫn tiếp tục chạy
+      max-parallel: 3 # Tùy chỉnh số lượng máy ảo chạy song song
+      fail-fast: false # Đảm bảo 1 bản bị lỗi thì các bản khác vẫn chạy bình thường
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cài đặt Zalo v${{ matrix.version }} qua winget
+      - name: Tải và cài đặt Zalo v${{ matrix.version }} (Bypass SSL)
         shell: pwsh
         run: |
+          $version = "${{ matrix.version }}"
+          Write-Host "Đang xử lý phiên bản $version..."
+          
           winget source update
-          winget install --id VNGCorp.Zalo --version "${{ matrix.version }}" -e `
-            --silent `
-            --accept-package-agreements `
-            --accept-source-agreements `
-            --disable-interactivity
+          
+          # 1. Dùng winget để lấy link tải gốc
+          $wingetInfo = winget show --id VNGCorp.Zalo --version $version
+          $urlMatch = $wingetInfo | Select-String "(?i)Installer Url:\s*(.+)"
+          
+          if (-not $urlMatch) {
+            throw "Không tìm thấy URL tải xuống cho phiên bản $version"
+          }
+          
+          $url = $urlMatch.Matches[0].Groups[1].Value.Trim()
+          Write-Host "Tìm thấy URL: $url"
+          
+          # 2. Tải file bằng PowerShell để lách lỗi SSL hết hạn (-SkipCertificateCheck)
+          Write-Host "Đang tải file cài đặt..."
+          Invoke-WebRequest -Uri $url -OutFile "ZaloSetup.exe" -SkipCertificateCheck
+          
+          # 3. Cài đặt Zalo ngầm (Silent mode với cờ /S)
+          Write-Host "Đang tiến hành cài đặt ngầm..."
+          Start-Process -FilePath ".\ZaloSetup.exe" -ArgumentList "/S" -Wait -NoNewWindow
+          
+          # Chờ 15s để đảm bảo tiến trình nền giải nén xong các file cần thiết
+          Start-Sleep -Seconds 15
 
       - name: Tìm thư mục vừa cài đặt
         id: locate
         shell: pwsh
         run: |
           $base = Join-Path $env:LOCALAPPDATA "Programs\Zalo"
-          if (-not (Test-Path $base)) { throw "Khong tim thay $base" }
+          if (-not (Test-Path $base)) { throw "Không tìm thấy $base" }
 
           $targetVer = "${{ matrix.version }}"
           
-          # Ưu tiên tìm đúng thư mục "Zalo-x.y.z" tương ứng với phiên bản matrix
+          # Ưu tiên tìm đúng thư mục "Zalo-x.y.z"
           $verDir = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -eq "Zalo-$targetVer" -and (Test-Path (Join-Path $_.FullName "Zalo.exe")) }
 
@@ -110,12 +130,12 @@ jobs:
             else {
               $exe = Get-ChildItem $base -Recurse -Filter "Zalo.exe" -File -ErrorAction SilentlyContinue |
                 Select-Object -First 1
-              if (-not $exe) { throw "Khong tim thay Zalo.exe ben trong $base" }
+              if (-not $exe) { throw "Không tìm thấy Zalo.exe bên trong $base" }
               $dir = $exe.Directory
             }
           }
 
-          Write-Host "Thu muc se dong goi: $($dir.FullName)"
+          Write-Host "Thư mục sẽ đóng gói: $($dir.FullName)"
           echo "path=$($dir.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Nén thư mục cài đặt
@@ -125,7 +145,7 @@ jobs:
           $tag = "Zalo-${{ matrix.version }}"
           $zipName = "$tag.zip"
           Compress-Archive -Path "${{ steps.locate.outputs.path }}\*" -DestinationPath $zipName -Force
-          Write-Host "Da nen: $zipName"
+          Write-Host "Đã nén thành công: $zipName"
           echo "zipname=$zipName" >> $env:GITHUB_OUTPUT
 
       - name: Tạo GitHub Release
@@ -137,4 +157,4 @@ jobs:
           gh release create $tag "${{ steps.zip.outputs.zipname }}" `
             --repo $env:GITHUB_REPOSITORY `
             --title $tag `
-            --notes "Tu dong dong goi tu winget-pkgs (VNGCorp.Zalo ${{ matrix.version }})."
+            --notes "Tự động đóng gói từ winget-pkgs (VNGCorp.Zalo ${{ matrix.version }})."
