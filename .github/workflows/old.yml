@@ -71,61 +71,79 @@ jobs:
         version: ${{ fromJson(needs.discover.outputs.versions) }}
 
     steps:
-      - name: Bật TLS 1.2/1.3 cho WinINet (sửa lỗi 0x80072f05)
-        shell: pwsh
-        run: |
-          # Mot so image windows-latest khong bat san TLS 1.2/1.3 trong WinINet cho
-          # user chay job, khien winget bao loi "InternetOpenUrl() failed 0x80072f05"
-          # khi tai file qua HTTPS. Ep bat TLS 1.0/1.1/1.2/1.3 qua registry de sua.
-          $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-          if (-not (Test-Path $regPath)) {
-            New-Item -Path $regPath -Force | Out-Null
-          }
-          Set-ItemProperty -Path $regPath -Name 'SecureProtocols' -Value 0x2A80 -Type DWord -Force
-
-          [Net.ServicePointManager]::SecurityProtocol = `
-            [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-
-      - name: Cài đặt Zalo ${{ matrix.version }} qua winget
+      - name: Tải & cài đặt Zalo ${{ matrix.version }} (đọc thẳng manifest, không qua winget)
         id: install
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Continue"
-          winget source update
+          $ErrorActionPreference = "Stop"
+          $version = "${{ matrix.version }}"
+          $manifestUrl = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/v/VNGCorp/Zalo/$version/VNGCorp.Zalo.installer.yaml"
 
-          $maxAttempts = 3
+          function Get-YamlValue($text, $key) {
+            $m = [regex]::Match($text, "(?m)^\s*${key}:\s*(.+)\s*$")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() }
+            return $null
+          }
+
           $success = $false
+          try {
+            Write-Host "Doc manifest: $manifestUrl"
+            $raw = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing
 
-          for ($i = 1; $i -le $maxAttempts; $i++) {
-            winget install --id VNGCorp.Zalo -e --version "${{ matrix.version }}" `
-              --silent `
-              --accept-package-agreements `
-              --accept-source-agreements `
-              --disable-interactivity
+            $installerUrl    = Get-YamlValue $raw "InstallerUrl"
+            $installerSha256 = Get-YamlValue $raw "InstallerSha256"
+            $installerType   = Get-YamlValue $raw "InstallerType"
 
-            if ($LASTEXITCODE -eq 0) {
-              $success = $true
-              break
+            if (-not $installerUrl) { throw "Khong doc duoc InstallerUrl tu manifest" }
+            Write-Host "InstallerUrl: $installerUrl"
+            Write-Host "InstallerType: $installerType"
+
+            $exePath = Join-Path $env:RUNNER_TEMP "ZaloSetup-$version.exe"
+
+            $maxAttempts = 3
+            for ($i = 1; $i -le $maxAttempts; $i++) {
+              try {
+                Invoke-WebRequest -Uri $installerUrl -OutFile $exePath -UseBasicParsing
+                break
+              }
+              catch {
+                Write-Warning "Lan thu $i/$maxAttempts tai file that bai: $($_.Exception.Message)"
+                if ($i -eq $maxAttempts) { throw }
+                Start-Sleep -Seconds 15
+              }
             }
 
-            Write-Warning "Lan thu $i/$maxAttempts that bai (exit code $LASTEXITCODE) khi cai ${{ matrix.version }}."
-            if ($i -lt $maxAttempts) {
-              Start-Sleep -Seconds 15
+            if ($installerSha256) {
+              $hash = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash
+              if ($hash -ne $installerSha256.ToUpper()) {
+                throw "SHA256 khong khop! Manifest: $installerSha256 - Thuc te: $hash"
+              }
+              Write-Host "SHA256 khop."
             }
+
+            if ($installerType -and $installerType -ne "nullsoft") {
+              Write-Warning "InstallerType la '$installerType', khong phai 'nullsoft'. Van thu chay voi /S."
+            }
+
+            Write-Host "Cai dat silent: $exePath /S"
+            $proc = Start-Process -FilePath $exePath -ArgumentList "/S" -PassThru -Wait
+            if ($proc.ExitCode -ne 0) { throw "Trinh cai dat tra ve exit code $($proc.ExitCode)" }
+
+            # Doi vai giay de trinh cai dat ghi xong file (mot so installer thoat truoc khi copy xong)
+            Start-Sleep -Seconds 5
+            $success = $true
+          }
+          catch {
+            Write-Warning "Khong the tai/cai dat phien ban ${version}: $($_.Exception.Message). Bo qua."
           }
 
-          if (-not $success) {
-            # winget chi giu mot so gioi han cac phien ban cu trong nguon cai dat,
-            # hoac link tai cua phien ban nay co the khong con hoat dong -> bo qua thay vi lam fail ca job
-            Write-Warning "Khong the cai dat phien ban ${{ matrix.version }} qua winget sau $maxAttempts lan thu. Bo qua."
-            echo "skip=true" >> $env:GITHUB_OUTPUT
-          } else {
+          if ($success) {
             echo "skip=false" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "skip=true" >> $env:GITHUB_OUTPUT
           }
 
-          # Quan trong: reset exit code ve 0 de step nay khong bi GitHub Actions
-          # danh dau la "failed" (neu khong, cac step phia sau se bi bo qua va ca job se fail)
-          $global:LASTEXITCODE = 0
+          # Luon thoat 0 de khong lam fail ca job khi mot phien ban bi bo qua
           exit 0
 
       - name: Tìm thư mục vừa cài đặt
