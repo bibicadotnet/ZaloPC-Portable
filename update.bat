@@ -18,7 +18,7 @@ $ErrorActionPreference = "Stop"
 $repo    = "bibicadotnet/ZaloPC-Portable"
 $appDir  = Join-Path $currentDir "App"
 $exePath = Join-Path $appDir "Zalo.exe"
-$apiUrl  = "https://api.github.com/repos/$repo/releases/latest"
+$apiUrl  = "https://api.github.com/repos/$repo/releases"
 
 $tempDir = Join-Path $currentDir ("ZaloUpdateTemp_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
@@ -50,10 +50,22 @@ try {
 
   $currentVersion = if (Test-Path $exePath) { (Get-Item $exePath).VersionInfo.ProductVersion } else { "Not installed" }
 
-  $release = Invoke-RestMethod -Uri $apiUrl -Headers @{ "User-Agent" = "ZaloPC-Portable-Updater" }
-  $tag = $release.tag_name
-  $latestVersion = $tag -replace '^Zalo-', ''
-  $asset = $release.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
+  $releases = Invoke-RestMethod -Uri $apiUrl -Headers @{ "User-Agent" = "ZaloPC-Portable-Updater" }
+  $latestRelease = $releases | Where-Object { $_.tag_name -like "Zalo-*" } | ForEach-Object {
+    $vStr = $_.tag_name -replace '^Zalo-', ''
+    if ($vStr -match '^\d+(\.\d+)+$') {
+      [PSCustomObject]@{
+        Release = $_
+        Version = [System.Version]$vStr
+      }
+    }
+  } | Sort-Object Version -Descending | Select-Object -First 1
+
+  if (-not $latestRelease) { throw "Could not find any valid Zalo release on GitHub." }
+
+  $latestVersion = $latestRelease.Version.ToString()
+  $releaseObj = $latestRelease.Release
+  $asset = $releaseObj.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
   if (-not $asset) { throw "Could not find a .zip file in the latest release." }
   $downloadUrl = $asset.browser_download_url
 
@@ -65,10 +77,20 @@ try {
 
   if ($currentVersion -eq "Not installed") {
     $promptMsg = "Do you want to install Zalo version $latestVersion? (y/N)"
-  } elseif ($currentShort -eq $latestVersion) {
-    $promptMsg = "Zalo is already at the latest version ($currentVersion). Do you want to reinstall? (y/N)"
   } else {
-    $promptMsg = "Do you want to update Zalo from $currentVersion to $latestVersion? (y/N)"
+    try {
+      $currentVerObj = [System.Version]$currentShort
+      $latestVerObj = [System.Version]$latestVersion
+      if ($currentVerObj -gt $latestVerObj) {
+        $promptMsg = "Your version ($currentVersion) is newer than the version on GitHub ($latestVersion). Do you want to downgrade/reinstall to $latestVersion? (y/N)"
+      } elseif ($currentVerObj -eq $latestVerObj) {
+        $promptMsg = "Zalo is already at the latest version ($currentVersion). Do you want to reinstall? (y/N)"
+      } else {
+        $promptMsg = "Do you want to update Zalo from $currentVersion to $latestVersion? (y/N)"
+      }
+    } catch {
+      $promptMsg = "Do you want to overwrite Zalo with version $latestVersion? (y/N)"
+    }
   }
 
   $confirm = Read-Host $promptMsg
