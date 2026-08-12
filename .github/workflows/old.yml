@@ -1,4 +1,4 @@
-name: Cập nhật Zalo Release
+name: All Zalo Release
 
 on:
   schedule:
