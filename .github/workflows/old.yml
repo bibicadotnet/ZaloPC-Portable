@@ -1,4 +1,4 @@
-name: Cập nhật Zalo Release
+name: Các phiên bản Zalo PC cũ hơn
 
 on:
   schedule:
