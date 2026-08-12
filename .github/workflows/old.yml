@@ -1,0 +1,140 @@
+name: Cập nhật tất cả Zalo Releases
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: windows-latest
+    outputs:
+      missing_versions: ${{ steps.get-versions.outputs.missing_versions }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lấy danh sách các phiên bản chưa có Release
+        id: get-versions
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headers = @{ "User-Agent" = "ZaloPC-Portable-Action" }
+          if ($env:GH_TOKEN) { $headers["Authorization"] = "Bearer $env:GH_TOKEN" }
+
+          # 1. Lấy danh sách tất cả phiên bản trên winget-pkgs
+          $uri = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/v/VNGCorp/Zalo"
+          $resp = Invoke-RestMethod -Headers $headers -Uri $uri
+          $allVersions = $resp | Where-Object { $_.type -eq "dir" } | ForEach-Object { $_.name }
+
+          if (-not $allVersions) { throw "Không lấy được danh sách phiên bản từ winget-pkgs" }
+
+          # 2. Lấy danh sách Releases đã tạo trên Repo hiện tại
+          $existingReleases = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 | ForEach-Object {
+            ($_ -split "`t")[0] # Lấy cột Tag Name
+          }
+
+          # 3. Lọc ra các phiên bản chưa được tạo Release
+          $missing = @()
+          foreach ($ver in $allVersions) {
+            $tag = "Zalo-$ver"
+            if ($existingReleases -notcontains $tag) {
+              $missing += $ver
+            }
+          }
+
+          # 4. Xuất mảng JSON để dùng cho Matrix
+          $jsonMissing = ConvertTo-Json -Compress @($missing)
+          Write-Host "Các phiên bản cần tạo Release: $jsonMissing"
+          echo "missing_versions=$jsonMissing" >> $env:GITHUB_OUTPUT
+
+  build:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.missing_versions != '[]' && needs.prepare.outputs.missing_versions != '' }}
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        version: ${{ fromJson(needs.prepare.outputs.missing_versions) }}
+      max-parallel: 2 # Số lượng job chạy song song tối đa (tùy chỉnh nếu muốn)
+      fail-fast: false # Nếu 1 bản bị lỗi thì các bản khác vẫn tiếp tục chạy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Zalo v${{ matrix.version }} qua winget
+        shell: pwsh
+        run: |
+          winget source update
+          winget install --id VNGCorp.Zalo --version "${{ matrix.version }}" -e `
+            --silent `
+            --accept-package-agreements `
+            --accept-source-agreements `
+            --disable-interactivity
+
+      - name: Tìm thư mục vừa cài đặt
+        id: locate
+        shell: pwsh
+        run: |
+          $base = Join-Path $env:LOCALAPPDATA "Programs\Zalo"
+          if (-not (Test-Path $base)) { throw "Khong tim thay $base" }
+
+          $targetVer = "${{ matrix.version }}"
+          
+          # Ưu tiên tìm đúng thư mục "Zalo-x.y.z" tương ứng với phiên bản matrix
+          $verDir = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq "Zalo-$targetVer" -and (Test-Path (Join-Path $_.FullName "Zalo.exe")) }
+
+          if (-not $verDir) {
+            # Dự phòng: Tìm thư mục dạng Zalo-x.y.z bất kỳ có chứa Zalo.exe
+            $verDir = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '^Zalo-\d' -and (Test-Path (Join-Path $_.FullName "Zalo.exe")) } |
+              Sort-Object { [version]($_.Name -replace '^Zalo-', '') } |
+              Select-Object -Last 1
+          }
+
+          if ($verDir) {
+            $dir = $verDir
+          }
+          else {
+            # Dự phòng 2: Zalo.exe nằm trực tiếp trong gốc
+            $rootExe = Join-Path $base "Zalo.exe"
+            if (Test-Path $rootExe) {
+              $dir = Get-Item $base
+            }
+            else {
+              $exe = Get-ChildItem $base -Recurse -Filter "Zalo.exe" -File -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if (-not $exe) { throw "Khong tim thay Zalo.exe ben trong $base" }
+              $dir = $exe.Directory
+            }
+          }
+
+          Write-Host "Thu muc se dong goi: $($dir.FullName)"
+          echo "path=$($dir.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Nén thư mục cài đặt
+        id: zip
+        shell: pwsh
+        run: |
+          $tag = "Zalo-${{ matrix.version }}"
+          $zipName = "$tag.zip"
+          Compress-Archive -Path "${{ steps.locate.outputs.path }}\*" -DestinationPath $zipName -Force
+          Write-Host "Da nen: $zipName"
+          echo "zipname=$zipName" >> $env:GITHUB_OUTPUT
+
+      - name: Tạo GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "Zalo-${{ matrix.version }}"
+          gh release create $tag "${{ steps.zip.outputs.zipname }}" `
+            --repo $env:GITHUB_REPOSITORY `
+            --title $tag `
+            --notes "Tu dong dong goi tu winget-pkgs (VNGCorp.Zalo ${{ matrix.version }})."
