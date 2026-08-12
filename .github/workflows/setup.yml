@@ -1,0 +1,44 @@
+name: Create Setup Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Registry/**'
+      - 'add_to_startup.bat'
+      - 'update.bat'
+      - 'Zalo.exe'
+      - 'Zalo.ini'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare portable folder structure
+        run: |
+          mkdir -p "ZaloPC Portable"
+          cp -r Registry "ZaloPC Portable/"
+          cp add_to_startup.bat "ZaloPC Portable/"
+          cp update.bat "ZaloPC Portable/"
+          cp Zalo.exe "ZaloPC Portable/"
+          cp Zalo.ini "ZaloPC Portable/"
+
+      - name: Zip ZaloPC Portable
+        run: |
+          zip -r ZaloPC.Portable.zip "ZaloPC Portable"
+
+      - name: Upload or update Setup Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Try uploading the asset to existing release, create new release if it does not exist
+          gh release upload setup ZaloPC.Portable.zip --clobber || \
+          gh release create setup ZaloPC.Portable.zip \
+            --title "ZaloPC Portable Setup" \
+            --notes "" \
+            --target main
