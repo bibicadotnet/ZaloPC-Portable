@@ -4,6 +4,7 @@ Phiên bản viết lại dựa theo bản của thành viên [chín hai](https:
 
 * ZaloPC Portable giúp chạy Zalo trực tiếp từ một thư mục riêng, không cần cài đặt
 * Dữ liệu Zalo được lưu trong thư mục `Data\`, nên dễ dàng sao lưu hoặc chuyển sang máy khác
+* Chạy không cần quyền Administrator
 
 ## Tải và sử dụng
 
@@ -12,7 +13,7 @@ Phiên bản viết lại dựa theo bản của thành viên [chín hai](https:
 3. Chạy `update.bat` để tải phiên bản Zalo mới nhất
 4. Chạy `Zalo.exe` và đăng nhập
 
-> Nên sử dụng ổ đĩa **NTFS**. FAT32 và exFAT không hỗ trợ symbolic link.
+> Bắt buộc sử dụng ổ đĩa định dạng NTFS. FAT32 và exFAT không hỗ trợ liên kết thư mục (Junction Point).
 
 Muốn Zalo tự khởi động cùng Windows, chạy `add_to_startup.bat`.
 
@@ -55,5 +56,3 @@ GitHub Actions kiểm tra phiên bản mới mỗi **6 giờ**, vì vậy bản 
 
 * Windows 10/11 64-bit
 * Ổ đĩa định dạng **NTFS**
-* Cần quyền **Administrator** để tạo symbolic link
-* Bộ gõ tiếng Việt (UniKey...) cần chạy với quyền **Administrator**
