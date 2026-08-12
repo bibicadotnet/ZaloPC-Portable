@@ -19,13 +19,11 @@ Muốn Zalo tự khởi động cùng Windows, chạy `add_to_startup.bat`.
 
 ## Cập nhật
 
-Khi muốn cập nhật Zalo, chỉ cần chạy lại:
+Khi muốn cập nhật Zalo lên phiên bản mới nhất, chỉ cần chạy lại:
 
-```text
+```
 update.bat
 ```
-
-Script sẽ kiểm tra và tải phiên bản Zalo mới nhất.
 
 ## Cấu trúc thư mục
 
