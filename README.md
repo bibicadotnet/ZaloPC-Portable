@@ -4,7 +4,7 @@ Phiên bản viết lại dựa theo bản của thành viên [chín hai](https:
 
 * ZaloPC Portable giúp chạy Zalo trực tiếp từ một thư mục riêng, không cần cài đặt
 * Dữ liệu Zalo được lưu trong thư mục `Data\`, nên dễ dàng sao lưu hoặc chuyển sang máy khác
-* Chạy không cần quyền Administrator
+* **Chạy không cần quyền Administrator**
 
 ## Tải và sử dụng
 
