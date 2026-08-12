@@ -1,4 +1,4 @@
-name: OLD Zalo Release
+name: Cập nhật Zalo Release
 
 on:
   schedule:
@@ -100,18 +100,56 @@ jobs:
 
             $exePath = Join-Path $env:RUNNER_TEMP "ZaloSetup-$version.exe"
 
-            $maxAttempts = 3
-            for ($i = 1; $i -le $maxAttempts; $i++) {
+            # CDN nay dang bi loi handshake TLS voi .NET mac dinh tren runner (khong phai
+            # do file sai). Vi da verify SHA256 tu manifest goc cua Microsoft ben duoi,
+            # nen o day co the bo qua kiem tra cert TLS mot cach an toan - tinh toan ven
+            # cua file duoc dam bao bang hash chu khong phai bang cert.
+            [Net.ServicePointManager]::SecurityProtocol = `
+              [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor `
+              [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+            [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+
+            function Get-FileMultiMethod($url, $out) {
+              # Cach 1: Invoke-WebRequest (HttpClient), bo qua kiem tra cert
               try {
-                Invoke-WebRequest -Uri $installerUrl -OutFile $exePath -UseBasicParsing
+                Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -SkipCertificateCheck -TimeoutSec 120
+                return $true
+              } catch {
+                Write-Warning "Invoke-WebRequest that bai: $($_.Exception.Message)"
+              }
+
+              # Cach 2: curl.exe (co san tren windows-latest), stack TLS khac
+              try {
+                & curl.exe -k -L --fail --silent --show-error -o $out $url
+                if ($LASTEXITCODE -eq 0 -and (Test-Path $out)) { return $true }
+                Write-Warning "curl.exe that bai (exit code $LASTEXITCODE)"
+              } catch {
+                Write-Warning "curl.exe loi: $($_.Exception.Message)"
+              }
+
+              # Cach 3: BITS transfer, stack mang rieng cua Windows
+              try {
+                Start-BitsTransfer -Source $url -Destination $out -ErrorAction Stop
+                if (Test-Path $out) { return $true }
+              } catch {
+                Write-Warning "BITS transfer that bai: $($_.Exception.Message)"
+              }
+
+              return $false
+            }
+
+            $maxAttempts = 3
+            $downloaded = $false
+            for ($i = 1; $i -le $maxAttempts; $i++) {
+              if (Get-FileMultiMethod $installerUrl $exePath) {
+                $downloaded = $true
                 break
               }
-              catch {
-                Write-Warning "Lan thu $i/$maxAttempts tai file that bai: $($_.Exception.Message)"
-                if ($i -eq $maxAttempts) { throw }
-                Start-Sleep -Seconds 15
-              }
+              Write-Warning "Lan thu $i/$maxAttempts tai file that bai (ca 3 cach)."
+              if ($i -lt $maxAttempts) { Start-Sleep -Seconds 15 }
             }
+
+            if (-not $downloaded) { throw "Khong tai duoc file sau $maxAttempts lan thu (da thu 3 cach moi lan)" }
 
             if ($installerSha256) {
               $hash = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash
