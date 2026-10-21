@@ -102,6 +102,30 @@ jobs:
           Write-Host "Thu muc se dong goi: $($dir.FullName)"
           echo "path=$($dir.FullName)" >> $env:GITHUB_OUTPUT
 
+      - name: Kiểm tra phiên bản thực tế của Zalo.exe
+        id: verify
+        if: steps.check.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exePath = Join-Path "${{ steps.locate.outputs.path }}" "Zalo.exe"
+          if (-not (Test-Path $exePath)) { throw "Khong tim thay $exePath" }
+
+          $actual   = (Get-Item $exePath).VersionInfo.ProductVersion
+          $expected = "${{ steps.winget.outputs.version }}"
+
+          # update.bat cung so sanh 3 phan dau cua ProductVersion (vd 26.10.11.3171 -> 26.10.11)
+          $actualShort = ($actual -split '\.')[0..2] -join '.'
+
+          Write-Host "Winget manifest : $expected"
+          Write-Host "Zalo.exe thuc te: $actual (so sanh: $actualShort)"
+
+          if ($actualShort -ne $expected) {
+            throw "Phien ban khong khop: winget bao $expected nhung Zalo.exe la $actual. Bo qua release."
+          }
+
+          Write-Host "Phien ban khop, tiep tuc dong goi."
+
       - name: Nén thư mục cài đặt
         id: zip
         if: steps.check.outputs.exists == 'false'
