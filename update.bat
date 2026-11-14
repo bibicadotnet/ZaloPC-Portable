@@ -14,11 +14,12 @@ exit /b
 ::PS_PAYLOAD::
 param([string]$currentDir)
 $ErrorActionPreference = "Stop"
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
 
 $repo    = "bibicadotnet/ZaloPC-Portable"
 $appDir  = Join-Path $currentDir "App"
 $exePath = Join-Path $appDir "Zalo.exe"
-$apiUrl  = "https://api.github.com/repos/$repo/releases"
+$apiUrl  = "https://api.github.com/repos/$repo/releases?per_page=100"
 
 $tempDir = Join-Path $currentDir ("ZaloUpdateTemp_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
@@ -76,20 +77,20 @@ try {
   Write-Host ""
 
   if ($currentVersion -eq "Not installed") {
-    $promptMsg = "Do you want to install Zalo version $latestVersion? (y/N)"
+    $promptMsg = "Do you want to install Zalo version ${latestVersion}? (y/N)"
   } else {
     try {
       $currentVerObj = [System.Version]$currentShort
       $latestVerObj = [System.Version]$latestVersion
       if ($currentVerObj -gt $latestVerObj) {
-        $promptMsg = "Your version ($currentVersion) is newer than the version on GitHub ($latestVersion). Do you want to downgrade/reinstall to $latestVersion? (y/N)"
+        $promptMsg = "Your version ($currentVersion) is newer than the version on GitHub ($latestVersion). Do you want to downgrade/reinstall to ${latestVersion}? (y/N)"
       } elseif ($currentVerObj -eq $latestVerObj) {
         $promptMsg = "Zalo is already at the latest version ($currentVersion). Do you want to reinstall? (y/N)"
       } else {
-        $promptMsg = "Do you want to update Zalo from $currentVersion to $latestVersion? (y/N)"
+        $promptMsg = "Do you want to update Zalo from $currentVersion to ${latestVersion}? (y/N)"
       }
     } catch {
-      $promptMsg = "Do you want to overwrite Zalo with version $latestVersion? (y/N)"
+      $promptMsg = "Do you want to overwrite Zalo with version ${latestVersion}? (y/N)"
     }
   }
 
@@ -97,32 +98,25 @@ try {
   if ($confirm -ne 'y' -and $confirm -ne 'Y') { exit }
   Write-Host ""
 
-  function Kill-Zalo {
-    $prevEAP = $ErrorActionPreference
-    $ErrorActionPreference = "SilentlyContinue"
-    taskkill /F /IM Zalo.exe /T 2>$null | Out-Null
-    $ErrorActionPreference = $prevEAP
+  function Get-PortableZalo {
+    $root = $currentDir.TrimEnd('\') + '\'
+    Get-CimInstance Win32_Process -Filter "Name='Zalo.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase) }
   }
 
-  $running = Get-Process -Name "Zalo" -ErrorAction SilentlyContinue
-  if ($running) {
-    Write-Host "Closing Zalo..."
-    Kill-Zalo
-
-    $retries = 0
-    while ((Get-Process -Name "Zalo" -ErrorAction SilentlyContinue) -and $retries -lt 5) {
-      Start-Sleep -Seconds 1
-      Kill-Zalo
-      $retries++
-    }
-
-    if (Get-Process -Name "Zalo" -ErrorAction SilentlyContinue) {
-      Write-Host "Could not close Zalo. Please close it manually and run this again." -ForegroundColor Red
+  if (Get-PortableZalo) {
+    Write-Host "ZaloPC Portable is running." -ForegroundColor Yellow
+    Write-Host "Please exit Zalo normally (tray icon -> Exit). Waiting up to 2 minutes..." -ForegroundColor Yellow
+    $waited = 0
+    while ((Get-PortableZalo) -and $waited -lt 120) { Start-Sleep -Seconds 1; $waited++ }
+    if (Get-PortableZalo) {
+      Write-Host "Zalo is still running. Please exit it and run this again." -ForegroundColor Red
       Write-Host ""
       Read-Host "Press Enter to exit"
       exit
     }
-    Start-Sleep -Seconds 1
+    # let the launcher finish its cleanup (junctions, registry)
+    Start-Sleep -Seconds 2
   }
 
   New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -148,6 +142,7 @@ try {
   if (-not (Test-Path $appDir)) { New-Item -ItemType Directory -Path $appDir -Force | Out-Null }
 
   robocopy $extractedRoot $appDir /MIR /R:2 /W:2 /NFL /NDL | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "robocopy failed (exit code $LASTEXITCODE). Make sure Zalo is fully closed." }
 
   Remove-ItemSafe $tempDir
 
